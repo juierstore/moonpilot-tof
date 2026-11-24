@@ -1,0 +1,6 @@
+menuconfig MODULES_TOF_GT_FRAMES
+	bool "tof_gt_frames (SITL test helper)"
+	default n
+	---help---
+		TEST ONLY helper: writes TOFSense-M NLink frames built from the SIH ground
+		truth altitude into a file, for closed loop testing of the tof_sense_ms driver.

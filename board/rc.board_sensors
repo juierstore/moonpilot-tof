@@ -1,0 +1,23 @@
+#!/bin/sh
+#
+# board specific sensors init - MoonPilot (STM32H743VI)
+#------------------------------------------------------------------------------
+
+board_adc start
+
+# Internal SPI bus 1: ICM-42688-P #1 (U2), CS PC15, DRDY PB2
+icm42688p -R 12 -b 1 -s start
+
+# Internal SPI bus 4: ICM-42688-P #2 (U3), CS PE11, DRDY PE15
+icm42688p -R 12 -b 4 -s start
+
+# Internal barometer on I2C2 (0x76)
+dps310 -I start -a 118
+
+# Internal magnetometer on I2C2 (0x0E = 14)
+ist8310 -I start -a 14
+
+# Nooploop TOFSense-M / MS rangefinder
+#   UART2 RX only -> PD6 -> U11.6 -> /dev/ttyS1
+#   (use -d /dev/ttyS3 for the UART4 GPS port instead)
+tof_sense_ms start -d /dev/ttyS1 -b 921600 -a 0

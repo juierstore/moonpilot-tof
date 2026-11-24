@@ -1,0 +1,14 @@
+#!/bin/sh
+#
+# board specific extras init - MoonPilot (STM32H743VI)
+#------------------------------------------------------------------------------
+
+# Analog OSD (AT7456E) on SPI2
+atxxxx start -s
+
+# DShot / ESC telemetry (RX only pins)
+#   ESC connector U17: UART8 RX -> PE0 -> /dev/ttyS6
+#   ESC connector U18: UART7 RX -> PE7 -> /dev/ttyS5
+# Uncomment the matching line when the ESC actually reports telemetry:
+# dshot telemetry -d /dev/ttyS6
+# dshot telemetry -d /dev/ttyS5

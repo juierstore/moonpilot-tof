@@ -1,0 +1,13 @@
+{
+    "board_id": 1099,
+    "magic": "PX4FWv1",
+    "description": "Firmware for the MoonPilot flight controller (STM32H743VIH6 + TOFSense-MS)",
+    "image": "",
+    "build_time": 0,
+    "summary": "MoonPilotToF",
+    "version": "0.1",
+    "image_size": 0,
+    "image_maxsize": 1966080,
+    "git_identity": "",
+    "board_revision": 0
+}

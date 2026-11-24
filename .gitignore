@@ -1,0 +1,23 @@
+# build artifacts (the prebuilt firmware under firmware/ is intentionally tracked)
+build/
+*.o
+*.obj
+*.a
+*.elf
+*.map
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# local logs and scratch
+*.log
+!sim_test/logs/*.log
