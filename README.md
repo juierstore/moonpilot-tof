@@ -1,4 +1,4 @@
-﻿# MoonPilot TOF 固件（`moonpilot-tof`）— TOFSense 串口测距接入 PX4
+# MoonPilot TOF 固件（`moonpilot-tof`）— TOFSense 串口测距接入 PX4
 
 飞机（机架）名称：**moonpilot-juier** ｜ 固件目标：**moonpilot_tof_default** ｜ 驱动模块：**tof_sense_ms**
 
@@ -78,7 +78,7 @@
 TOFSense 只发不收，所以默认挂在 **UART2_RX（U11.6）**：与 GPS（UART4，U11.3/4）共用同一个 6 芯座，
 不占用 GPS 串口，也不需要 TX。
 
-> 改到 UART4：把 `init/rc.board_sensors` 里改成 `tof_sense_ms start -d /dev/ttyS3 -b 921600` 即可
+> 换口不用改固件：QGC → 参数 → `TOFMS_CFG`（`0` 关闭 / `1` UART2 默认 / `2` UART4），**重启生效**；临时切换用 `tof_sense_ms stop` + `tof_sense_ms start -d /dev/ttyS3`。
 > （此时 GPS1 要让位，`default.px4board` 里的 `CONFIG_BOARD_SERIAL_GPS1` 需改到别的口）。
 
 ---
@@ -99,7 +99,7 @@ board/                                -> boards/moonpilot/tof/（从 boards/mate
   timer_config.cpp                    TIM3(CH3/4) + TIM5(CH1-4) + TIM4(CH1/2)
   spi.cpp                             SPI1/SPI4 两片 ICM-42688-P、SPI2 OSD、SPI3 外扩
   hw_config.h                         board type / 无 BOARD_VBUS
-  rc.board_sensors                    启动 IMU/气压/磁力计 + tof_sense_ms
+  rc.board_sensors                    启动 IMU/气压/磁力计 + tof_sense_ms（按 TOFMS_CFG 选口）
   rc.board_extras                     AT7456E OSD + ESC 遥测注释
 
 airframes/4002_moonpilot-juier        -> ROMFS/px4fmu_common/init.d/airframes/
@@ -156,6 +156,16 @@ make moonpilot_tof_default -j4
 ---
 
 ## 6. 上机自检步骤（建议顺序）
+
+**先确认串口设置**：QGC → 参数 → Sensors → `TOFMS_CFG`
+
+| 值 | 端口 | 什么时候用 |
+|---|---|---|
+| 0 | 不启动 | 暂时不用测距 |
+| **1** | `/dev/ttyS1`（UART2 RX，U11.6） | 默认，TOF 接在六芯口第 6 脚 |
+| 2 | `/dev/ttyS3`（UART4，U11.3/4） | TOF 接到六芯口第 3/4 脚（与 GPS 共用口，别同时用） |
+
+改完**要重启**（参数是开机时读的）。不想重启就临时切：`tof_sense_ms stop` → `tof_sense_ms start -d /dev/ttyS3`。
 
 ```bash
 # 1) 看驱动有没有起来、收到多少帧
@@ -228,7 +238,7 @@ $ arm-none-eabi-size moonpilot_tof_default.elf
           image_size=1733872  image_maxsize=1966080
 符号：    tof_sense_ms_main / TOFSenseMS::init() 均在 ELF 中
 ROMFS：   etc/init.d/airframes/4002_moonpilot-juier（含 PWM_MAIN_FUNC1..4 = 101..104、EKF2_RNG_CTRL 1）
-          etc/init.d/rc.board_sensors（含 tof_sense_ms start -d /dev/ttyS1 -b 921600 -a 0）
+          etc/init.d/rc.board_sensors（含 param compare TOFMS_CFG 1/2 两个启动分支）
 ```
 
 ---

@@ -135,6 +135,39 @@ serial_config:
 ⚠️ 用了 `serial_config` 就**不要**再在 `rc.board_sensors` 里写死，否则两个启动路径打架
 （驱动第二次 `start` 会打印 "already started"，不致命但会误导）。
 
+**第四种：自定义参数（本仓库 MoonPilot 板采用）**
+
+当想要的端口不在标准列表里（例如只引出 RX 的 UART2），绕开 `serial_config`，
+自己定义一个参数 + 在板级脚本里分支：
+
+```yaml
+# 驱动目录 module.yaml —— 只负责"参数存在且有可选项"
+parameters:
+    - group: Sensors
+      definitions:
+        TOFMS_CFG:
+            description: {short: Serial port for the Nooploop TOFSense rangefinder}
+            type: enum
+            values: {0: Disabled, 1: UART2 RX (/dev/ttyS1), 2: UART4 (/dev/ttyS3)}
+            default: 1
+            reboot_required: true
+```
+
+```sh
+# boards/<v>/<b>/init/rc.board_sensors —— 真正决定跑在哪个口
+if param compare TOFMS_CFG 1
+then
+	tof_sense_ms start -d /dev/ttyS1 -b 921600 -a 0
+fi
+if param compare TOFMS_CFG 2
+then
+	tof_sense_ms start -d /dev/ttyS3 -b 921600 -a 0
+fi
+```
+
+优点：端口可任意映射（不受 `CONFIG_BOARD_SERIAL_*` 限制）、QGC 里可见可改、**不动驱动代码**，
+加端口只是再加一段 `if`。注意它同样是"开机读参数"，改完要重启。
+
 ### A.6 编译 + 上板自检
 
 ```bash

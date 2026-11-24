@@ -1,4 +1,4 @@
-﻿# tof_sense_ms — Nooploop TOFSense / -M / -MS 串口测距驱动
+# tof_sense_ms — Nooploop TOFSense / -M / -MS 串口测距驱动
 
 PX4 串口驱动，读取 Nooploop（空循环）TOFSense 系列激光测距模块的 **NLink** 数据帧，
 校验后把（面阵型号聚合成的）单点距离发布到 uORB `distance_sensor`，供 EKF2 做高度融合/参考。
@@ -165,6 +165,44 @@ tof_sense_ms: invalid: 0 events                     ← 有帧但无有效区（
 ```
 
 排障时重点看三个数：`frame rate`（应≈模块上报频率）、`parser errors`（应 0）、`invalid`（遮挡时才会涨）。
+
+### 5.1 端口选择：`TOFMS_CFG`（QGC 可改）
+
+MoonPilot 板把"驱动跑在哪个串口"做成了参数，在 QGC → 参数 → `Sensors` 里改，**重启生效**：
+
+| 值 | 端口 | 说明 |
+|---|---|---|
+| 0 | — | 不启动驱动 |
+| **1** | `/dev/ttyS1`（UART2 RX，PD6，U11 第 6 脚） | **默认**，只收不发 |
+| 2 | `/dev/ttyS3`（UART4，PB9/PB8，U11 第 3/4 脚） | 六芯口；若同一口还接 GPS 会冲突 |
+
+参数由 `module.yaml` 定义，实际分支在**板级启动脚本**里（`boards/moonpilot/tof/init/rc.board_sensors`）：
+
+```sh
+if param compare TOFMS_CFG 1
+then
+	tof_sense_ms start -d /dev/ttyS1 -b 921600 -a 0
+fi
+if param compare TOFMS_CFG 2
+then
+	tof_sense_ms start -d /dev/ttyS3 -b 921600 -a 0
+fi
+```
+
+两个要点：
+
+- **驱动自身不读这个参数**，是脚本读的。移植到别的板子时，照抄这两段 `if param compare` 即可，
+  想加第三个端口就再加一段（不需要改驱动、不需要重编驱动）。
+- 为什么不用 PX4 标准的 `SENS_*_CFG`（`serial_config`）：那套的下拉框选项只能来自板级
+  `CONFIG_BOARD_SERIAL_*` 声明；本板的 UART2（`ttyS1`）不在标准列表里，硬塞成 `TEL1`
+  会让 MAVLink 遥测和 TOF 抢同一个 tty。自定义参数没有这个限制。
+
+不想重启就临时切（重启后回到参数值）：
+
+```sh
+tof_sense_ms stop
+tof_sense_ms start -d /dev/ttyS3 -b 921600
+```
 
 ---
 

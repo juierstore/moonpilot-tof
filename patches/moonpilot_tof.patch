@@ -192,10 +192,10 @@ index 0000000000..1c76f8bc99
 +# dshot telemetry -d /dev/ttyS5
 diff --git a/boards/moonpilot/tof/init/rc.board_sensors b/boards/moonpilot/tof/init/rc.board_sensors
 new file mode 100644
-index 0000000000..34758955e0
+index 0000000000..0a933a3d6a
 --- /dev/null
 +++ b/boards/moonpilot/tof/init/rc.board_sensors
-@@ -0,0 +1,23 @@
+@@ -0,0 +1,40 @@
 +#!/bin/sh
 +#
 +# board specific sensors init - MoonPilot (STM32H743VI)
@@ -215,10 +215,27 @@ index 0000000000..34758955e0
 +# Internal magnetometer on I2C2 (0x0E = 14)
 +ist8310 -I start -a 14
 +
-+# Nooploop TOFSense-M / MS rangefinder
-+#   UART2 RX only -> PD6 -> U11.6 -> /dev/ttyS1
-+#   (use -d /dev/ttyS3 for the UART4 GPS port instead)
-+tof_sense_ms start -d /dev/ttyS1 -b 921600 -a 0
++# Nooploop TOFSense rangefinder
++#
++# Port is selected with the TOFMS_CFG parameter (reboot required):
++#   0 = disabled
++#   1 = UART2 RX only, PD6, U11 pin 6 -> /dev/ttyS1   (default)
++#   2 = UART4, PB9/PB8, U11 pin 3/4   -> /dev/ttyS3
++#
++# The port is opened at boot, so the parameter takes effect after a reboot.
++# To switch at runtime instead:
++#   tof_sense_ms stop
++#   tof_sense_ms start -d /dev/ttyS3 -b 921600
++
++if param compare TOFMS_CFG 1
++then
++	tof_sense_ms start -d /dev/ttyS1 -b 921600 -a 0
++fi
++
++if param compare TOFMS_CFG 2
++then
++	tof_sense_ms start -d /dev/ttyS3 -b 921600 -a 0
++fi
 diff --git a/boards/moonpilot/tof/nuttx-config/Kconfig b/boards/moonpilot/tof/nuttx-config/Kconfig
 new file mode 100644
 index 0000000000..bb33d3cfda
@@ -2927,11 +2944,11 @@ index 0000000000..515a1dd11c
 +		distance and publishes it on the distance_sensor uORB topic.
 diff --git a/src/drivers/distance_sensor/tof_sense_ms/README.md b/src/drivers/distance_sensor/tof_sense_ms/README.md
 new file mode 100644
-index 0000000000..7b6c23f801
+index 0000000000..ce48fea0df
 --- /dev/null
 +++ b/src/drivers/distance_sensor/tof_sense_ms/README.md
-@@ -0,0 +1,269 @@
-+# tof_sense_ms — Nooploop TOFSense / -M / -MS 串口测距驱动
+@@ -0,0 +1,275 @@
++﻿# tof_sense_ms — Nooploop TOFSense / -M / -MS 串口测距驱动
 +
 +PX4 串口驱动，读取 Nooploop（空循环）TOFSense 系列激光测距模块的 **NLink** 数据帧，
 +校验后把（面阵型号聚合成的）单点距离发布到 uORB `distance_sensor`，供 EKF2 做高度融合/参考。
@@ -3197,7 +3214,13 @@ index 0000000000..7b6c23f801
 +
 +---
 +
-+## 12. 许可
++## 12. 换板子/换版本怎么移植
++
++见项目根目录的 **[PORTING.md](../../../../PORTING.md)**（四种场景 + 检查表 + 常见报错对照）。
++
++---
++
++## 13. 许可
 +
 +BSD-3-Clause，与 PX4 一致。
 diff --git a/src/drivers/distance_sensor/tof_sense_ms/TOFSenseMS.cpp b/src/drivers/distance_sensor/tof_sense_ms/TOFSenseMS.cpp
@@ -3712,11 +3735,40 @@ index 0000000000..d595f7997f
 +};
 diff --git a/src/drivers/distance_sensor/tof_sense_ms/module.yaml b/src/drivers/distance_sensor/tof_sense_ms/module.yaml
 new file mode 100644
-index 0000000000..0208cb71ad
+index 0000000000..9175092572
 --- /dev/null
 +++ b/src/drivers/distance_sensor/tof_sense_ms/module.yaml
-@@ -0,0 +1 @@
+@@ -0,0 +1,30 @@
 +module_name: Nooploop TOFSense Rangefinder
++
++parameters:
++    - group: Sensors
++      definitions:
++        TOFMS_CFG:
++            description:
++                short: Serial port for the Nooploop TOFSense rangefinder
++                long: |
++                    Selects the serial port on which the tof_sense_ms driver is started
++                    at boot (MoonPilot board).
++
++                    0: driver disabled
++                    1: UART2 RX only, PD6, connector U11 pin 6   (/dev/ttyS1)
++                    2: UART4, PB9/PB8, connector U11 pin 3/4     (/dev/ttyS3)
++
++                    Option 2 shares the 6 pin GPS connector: if a GPS is also wired to
++                    UART4, use option 1 for the rangefinder instead.
++
++                    The port is opened at boot, so changing this parameter requires a
++                    reboot. To switch ports without rebooting, use the shell:
++                      tof_sense_ms stop
++                      tof_sense_ms start -d /dev/ttyS3 -b 921600
++            type: enum
++            values:
++                0: Disabled
++                1: UART2 RX (U11.6, /dev/ttyS1)
++                2: UART4 (U11.3/4, /dev/ttyS3)
++            default: 1
++            reboot_required: true
 diff --git a/src/drivers/distance_sensor/tof_sense_ms/tof_sense_ms_main.cpp b/src/drivers/distance_sensor/tof_sense_ms/tof_sense_ms_main.cpp
 new file mode 100644
 index 0000000000..67257b7df0

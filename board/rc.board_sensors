@@ -17,7 +17,24 @@ dps310 -I start -a 118
 # Internal magnetometer on I2C2 (0x0E = 14)
 ist8310 -I start -a 14
 
-# Nooploop TOFSense-M / MS rangefinder
-#   UART2 RX only -> PD6 -> U11.6 -> /dev/ttyS1
-#   (use -d /dev/ttyS3 for the UART4 GPS port instead)
-tof_sense_ms start -d /dev/ttyS1 -b 921600 -a 0
+# Nooploop TOFSense rangefinder
+#
+# Port is selected with the TOFMS_CFG parameter (reboot required):
+#   0 = disabled
+#   1 = UART2 RX only, PD6, U11 pin 6 -> /dev/ttyS1   (default)
+#   2 = UART4, PB9/PB8, U11 pin 3/4   -> /dev/ttyS3
+#
+# The port is opened at boot, so the parameter takes effect after a reboot.
+# To switch at runtime instead:
+#   tof_sense_ms stop
+#   tof_sense_ms start -d /dev/ttyS3 -b 921600
+
+if param compare TOFMS_CFG 1
+then
+	tof_sense_ms start -d /dev/ttyS1 -b 921600 -a 0
+fi
+
+if param compare TOFMS_CFG 2
+then
+	tof_sense_ms start -d /dev/ttyS3 -b 921600 -a 0
+fi
