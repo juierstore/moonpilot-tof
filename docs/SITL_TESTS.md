@@ -63,27 +63,30 @@ Instance 2:   current_distance:  3.00000  orientation: 0    <- tof_sense_ms 实�
 ```
 
 实例 0 喂 **全部区 status=0xFF** 的帧；实例 1 喂 **校验和损坏** 的帧；
-9 s 后停掉两个喂帧脚本。
+6 s 后停掉两个喂帧脚本。
 
 第一次 `status`（异常数据阶段）：
 
 ```
 INFO  [tof_sense_ms] instance 0: ...
-INFO  [tof_sense_ms]   frames: 31 total, 10 Hz, published 0, no-valid-zone 31, out-of-range 0
+INFO  [tof_sense_ms]   frames: 30 total, 10 Hz, published 0, no-valid-zone 30, out-of-range 0
 INFO  [tof_sense_ms]   parser: header/length errors 0, checksum errors 0
-INFO  [tof_sense_ms]   link: timeouts 0, last frame 80 ms ago, last distance 0.000 m (type 1, 64 zones)
+INFO  [tof_sense_ms]   link: timeouts 0, last frame 76 ms ago, last distance 0.000 m (type 1, 64 zones)
 INFO  [tof_sense_ms] instance 1: ...
 INFO  [tof_sense_ms]   frames: 1 total, 0 Hz, published 1, no-valid-zone 0, out-of-range 0
-INFO  [tof_sense_ms]   parser: header/length errors 1, checksum errors 30
-INFO  [tof_sense_ms]   link: timeouts 1, last frame 176 ms ago, last distance 1.234 m (type 1, 64 zones)
+INFO  [tof_sense_ms]   parser: header/length errors 1, checksum errors 29
+INFO  [tof_sense_ms]   link: timeouts 1, last frame 180 ms ago, last distance 1.234 m (type 1, 64 zones)
 ```
 
-第二次 `status`（约 8 s 后）：
+第二次 `status`（喂帧脚本停止约 3–5 s 后）：
 
 ```
-instance 0: frames 81, published 0, no-valid-zone 81, checksum errors 0
-instance 1: frames 2, published 2, checksum errors 79, header/length errors 1, timeouts 2
-WARN  [tof_sense_ms] instance 1: no valid frame on /dev/pts/2 for 1004 ms (check baudrate and wiring)
+instance 0: frames 50, published 0, no-valid-zone 50, checksum errors 0,
+            timeouts 1, last frame 2992 ms ago
+instance 1: frames 1, published 1, checksum errors 49, header/length errors 1,
+            timeouts 2, last frame 5036 ms ago
+WARN  [tof_sense_ms] instance 1: no valid frame on /dev/pts/1 for 1004 ms (check baudrate and wiring)
+WARN  [tof_sense_ms] instance 0: no valid frame on /dev/pts/2 for 1004 ms (check baudrate and wiring)
 ```
 
 结论：
@@ -95,8 +98,8 @@ WARN  [tof_sense_ms] instance 1: no valid frame on /dev/pts/2 for 1004 ms (check
 - 两路实例的计数器互不影响。
 
 > 注意：校验和损坏的流里仍有极小概率出现「碰巧校验通过」的帧（NLink 校验
-> 只有 8 位），本测试 80 帧里出现 2 帧。EKF2 的 `EKF2_RNG_CTRL=1`（Conditional）
-> 会做一致性检查；如现场干扰严重，优先降低波特率/换屏蔽线。
+> 只有 8 位），本测试 50 帧损坏帧里出现 1 帧。EKF2 的 `EKF2_RNG_CTRL=1`
+> （Conditional）会做一致性检查；如现场干扰严重，优先降低波特率/换屏蔽线。
 
 ---
 

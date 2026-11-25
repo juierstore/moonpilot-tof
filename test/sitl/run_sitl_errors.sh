@@ -60,7 +60,7 @@ cd "$BUILD" || exit 1
 
 # Stop the feeders from a background shell while PX4 is running.
 (
-	sleep 9
+	sleep 6
 	kill "$FEEDER0" "$FEEDER1" 2>/dev/null
 ) &
 
