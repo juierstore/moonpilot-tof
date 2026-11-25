@@ -1,0 +1,13 @@
+# PX4 SITL board variant with the Nooploop TOFSense driver enabled.
+#
+# Install with:
+#   cp boards/px4/sitl/tof.px4board <PX4>/boards/px4/sitl/
+#   # or: python3 tools/apply_to_px4.py --px4-root <PX4> --sitl
+#
+# Build and run:
+#   make px4_sitl_tof
+#   ./build/px4_sitl_tof/bin/px4
+#
+# The pty feeder and the two-instance smoke test are in test/sitl/.
+
+CONFIG_DRIVERS_DISTANCE_SENSOR_TOF_SENSE_MS=y

@@ -1,0 +1,130 @@
+module_name: Nooploop TOFSense Rangefinder
+
+serial_config:
+    - command: tof_sense_ms start -i 0 -d ${SERIAL_DEV} -b p:${BAUD_PARAM} -R p:SENS_TOFMS_ROT -a p:SENS_TOFMS_AGG -m p:SENS_TOFMS_MIN -M p:SENS_TOFMS_MAX
+      port_config_param:
+        name: SENS_TOFMS_CFG
+        group: Sensors
+        description_extended: |
+            Selects the serial port for the first Nooploop TOFSense
+            (TOFSense / TOFSense-M / TOFSense-MS, NLink protocol) instance.
+            The driver is started from rc.serial at boot, so a reboot is
+            required after changing this parameter. The sensor default
+            baudrate is 921600; the matching SER_<port>_BAUD parameter must
+            also be set to 921600 (the corvon_743v2 board defaults do this).
+      label: Nooploop TOFSense (instance 0)
+
+    - command: tof_sense_ms start -i 1 -d ${SERIAL_DEV} -b p:${BAUD_PARAM} -R p:SENS_TOFMS_ROT2 -a p:SENS_TOFMS_AGG2 -m p:SENS_TOFMS_MIN -M p:SENS_TOFMS_MAX
+      port_config_param:
+        name: SENS_TOFMS_CFG2
+        group: Sensors
+        description_extended: |
+            Selects the serial port for the optional second Nooploop TOFSense
+            instance (for example a forward looking sensor for obstacle
+            distance while the first sensor measures altitude). Leave at
+            Disabled if only one sensor is connected.
+      label: Nooploop TOFSense (instance 1)
+
+parameters:
+    - group: Sensors
+      definitions:
+        SENS_TOFMS_ROT:
+            description:
+                short: TOFSense orientation (instance 0)
+                long: |
+                    Mounting orientation of the first TOFSense sensor as
+                    MAV_SENSOR_ORIENTATION enum. 25 = downward facing (altitude
+                    hold), 0 = forward facing (obstacle distance).
+            type: enum
+            values:
+                25: ROTATION_DOWNWARD_FACING
+                24: ROTATION_UPWARD_FACING
+                4: ROTATION_BACKWARD_FACING
+                0: ROTATION_FORWARD_FACING
+                6: ROTATION_LEFT_FACING
+                2: ROTATION_RIGHT_FACING
+            default: 25
+            reboot_required: true
+
+        SENS_TOFMS_ROT2:
+            description:
+                short: TOFSense orientation (instance 1)
+                long: |
+                    Mounting orientation of the second TOFSense sensor as
+                    MAV_SENSOR_ORIENTATION enum. Only used when SENS_TOFMS_CFG2
+                    selects a serial port.
+            type: enum
+            values:
+                25: ROTATION_DOWNWARD_FACING
+                24: ROTATION_UPWARD_FACING
+                4: ROTATION_BACKWARD_FACING
+                0: ROTATION_FORWARD_FACING
+                6: ROTATION_LEFT_FACING
+                2: ROTATION_RIGHT_FACING
+            default: 25
+            reboot_required: true
+
+        SENS_TOFMS_AGG:
+            description:
+                short: TOFSense aggregation mode (instance 0)
+                long: |
+                    How the 8x8 / 4x4 zone map is reduced to a single distance:
+
+                    0: mean of the center zones (8x8: center 4x4), median
+                       fallback when the center is invalid - recommended for
+                       altitude hold
+                    1: median of all valid zones
+                    2: mean of all valid zones
+            type: enum
+            values:
+                0: Center zones
+                1: Median all zones
+                2: Mean all zones
+            default: 0
+            reboot_required: true
+
+        SENS_TOFMS_AGG2:
+            description:
+                short: TOFSense aggregation mode (instance 1)
+                long: |
+                    Aggregation mode of the second TOFSense instance, see
+                    SENS_TOFMS_AGG. Only used when SENS_TOFMS_CFG2 selects a
+                    serial port.
+            type: enum
+            values:
+                0: Center zones
+                1: Median all zones
+                2: Mean all zones
+            default: 0
+            reboot_required: true
+
+        SENS_TOFMS_MIN:
+            description:
+                short: TOFSense minimum distance
+                long: |
+                    Distances below this value are filtered out and reported as
+                    min_distance in the distance_sensor uORB topic. The
+                    TOFSense-M / MS blind zone starts at about 0.15 m.
+            type: float
+            unit: m
+            decimal: 2
+            default: 0.15
+            min: 0.01
+            max: 10.0
+            reboot_required: true
+
+        SENS_TOFMS_MAX:
+            description:
+                short: TOFSense maximum distance
+                long: |
+                    Distances above this value are filtered out and reported as
+                    max_distance in the distance_sensor uORB topic. Use a value
+                    slightly below the maximum reliable range of the sensor
+                    (4.0 m for the TOFSense-M / MS).
+            type: float
+            unit: m
+            decimal: 2
+            default: 4.0
+            min: 0.1
+            max: 50.0
+            reboot_required: true

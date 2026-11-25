@@ -1,6 +1,6 @@
 """Extract the TOFSense-M sample frame from the Nooploop protocol page.
 
-Writes tools/tof_sample_frame.h with the 400 byte reference frame (8x8 mode)
+Writes test/tof_sample_frame.h with the 400 byte reference frame (8x8 mode)
 documented at https://support.nooploop.com/tofsense/protocol/
 """
 
@@ -13,7 +13,8 @@ import urllib.request
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 URL = "https://support.nooploop.com/tofsense/protocol/"
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tof_sample_frame.h")
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUT = os.path.join(ROOT, "test", "tof_sample_frame.h")
 
 req = urllib.request.Request(URL, headers={"User-Agent": "Mozilla/5.0"})
 html = urllib.request.urlopen(req, timeout=60).read().decode("utf-8", "replace")

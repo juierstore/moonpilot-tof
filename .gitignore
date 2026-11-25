@@ -1,10 +1,13 @@
-# build artifacts (the prebuilt firmware under firmware/ is intentionally tracked)
+# build artifacts
 build/
 *.o
 *.obj
 *.a
 *.elf
 *.map
+
+# host unit test binary
+test/test_parser
 
 # python
 __pycache__/
@@ -20,4 +23,4 @@ desktop.ini
 
 # local logs and scratch
 *.log
-!sim_test/logs/*.log
+!test/sitl/logs/*.log

@@ -1,7 +1,5 @@
-﻿# keep every text file LF in the repository (shell scripts, python, C++ sources)
+# keep every text file LF in the repository (shell scripts, python, C++ sources)
 * text=auto eol=lf
 
-# binary artifacts
-*.px4 binary
-*.bin binary
+# binary files
 *.xlsx binary

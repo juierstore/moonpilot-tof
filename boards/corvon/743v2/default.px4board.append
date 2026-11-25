@@ -1,0 +1,13 @@
+# ---------------------------------------------------------------------------
+# Nooploop TOFSense rangefinder (NLink, 921600 8N1)
+#
+# Append these lines to boards/corvon/743v2/default.px4board (or let
+# tools/apply_to_px4.py --board corvon/743v2 do it).
+# ---------------------------------------------------------------------------
+
+# UART driver for TOFSense / TOFSense-M / TOFSense-MS
+CONFIG_DRIVERS_DISTANCE_SENSOR_TOF_SENSE_MS=y
+
+# Companion computer link (Raspberry Pi CM5) over uXRCE-DDS; already enabled
+# on the corvon_743v2 board, kept here so the integration is self contained.
+CONFIG_MODULES_UXRCE_DDS_CLIENT=y

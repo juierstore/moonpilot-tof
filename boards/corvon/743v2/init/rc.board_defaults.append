@@ -1,0 +1,35 @@
+# ---------------------------------------------------------------------------
+# Nooploop TOFSense + Raspberry Pi CM5 defaults for the CORVON 743V2.
+#
+# Append this block to boards/corvon/743v2/init/rc.board_defaults (or let
+# tools/apply_to_px4.py --board corvon/743v2 do it).
+#
+# Port map of this board (from boards/corvon/743v2/default.px4board):
+#   TELEM 1 -> /dev/ttyS0    TELEM 2 -> /dev/ttyS3
+#   TELEM 3 -> /dev/ttyS4    TELEM 4 -> /dev/ttyS7  (onboard Bluetooth)
+#   GPS 1   -> /dev/ttyS2    RC      -> /dev/ttyS5
+#
+# In QGC the selection is the standard serial config dropdown:
+#   SENS_TOFMS_CFG = 103 -> TELEM 3
+#   UXRCE_DDS_CFG  = 102 -> TELEM 2
+# ---------------------------------------------------------------------------
+
+# >>> tof_sense_ms >>>
+# Nooploop TOFSense on TELEM 3 (/dev/ttyS4), 921600 8N1, downward facing.
+# The driver itself is started by the auto generated rc.serial script.
+param set-default SENS_TOFMS_CFG   103
+param set-default SENS_TOFMS_ROT   25
+param set-default SENS_TOFMS_AGG   0
+param set-default SENS_TOFMS_MIN   0.15
+param set-default SENS_TOFMS_MAX   4.0
+param set-default SER_TEL3_BAUD    921600
+
+# Raspberry Pi CM5 companion link on TELEM 2 (/dev/ttyS3), uXRCE-DDS at 921600.
+# MAV_1 is released so that MAVLink does not claim the same port as uXRCE-DDS.
+# PX4 v1.18 has no SER_TEL2_FLOW parameter: the DDS client flow control is
+# UXRCE_DDS_FLCTRL (0 = off), MAVLink uses MAV_x_FLOW_CTRL.
+param set-default MAV_1_CONFIG      0
+param set-default UXRCE_DDS_CFG     102
+param set-default UXRCE_DDS_FLCTRL  0
+param set-default SER_TEL2_BAUD     921600
+# <<< tof_sense_ms <<<

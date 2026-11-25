@@ -1,0 +1,1805 @@
+diff --git a/src/drivers/distance_sensor/tof_sense_ms/CMakeLists.txt b/src/drivers/distance_sensor/tof_sense_ms/CMakeLists.txt
+new file mode 100644
+index 0000000000..a366b616a1
+--- /dev/null
++++ b/src/drivers/distance_sensor/tof_sense_ms/CMakeLists.txt
+@@ -0,0 +1,47 @@
++############################################################################
++#
++#   Copyright (c) 2025 MoonPilot / PX4 Development Team. All rights reserved.
++#
++# Redistribution and use in source and binary forms, with or without
++# modification, are permitted provided that the following conditions
++# are met:
++#
++# 1. Redistributions of source code must retain the above copyright
++#    notice, this list of conditions and the following disclaimer.
++# 2. Redistributions in binary form must reproduce the above copyright
++#    notice, this list of conditions and the following disclaimer in
++#    the documentation and/or other materials provided with the
++#    distribution.
++# 3. Neither the name PX4 nor the names of its contributors may be
++#    used to endorse or promote products derived from this software
++#    without specific prior written permission.
++#
++# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++# "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
++# FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
++# COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
++# INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++# BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++# OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED
++# AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
++# ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
++# POSSIBILITY OF SUCH DAMAGE.
++#
++############################################################################
++
++px4_add_module(
++	MODULE drivers__tof_sense_ms
++	MAIN tof_sense_ms
++	SRCS
++		TOFSenseMS.cpp
++		TOFSenseMS.hpp
++		tof_sense_ms_main.cpp
++		tof_sense_ms_parser.cpp
++		tof_sense_ms_parser.h
++	MODULE_CONFIG
++		module.yaml
++	DEPENDS
++		drivers_rangefinder
++	)
+diff --git a/src/drivers/distance_sensor/tof_sense_ms/Kconfig b/src/drivers/distance_sensor/tof_sense_ms/Kconfig
+new file mode 100644
+index 0000000000..5cf28761bb
+--- /dev/null
++++ b/src/drivers/distance_sensor/tof_sense_ms/Kconfig
+@@ -0,0 +1,13 @@
++menuconfig DRIVERS_DISTANCE_SENSOR_TOF_SENSE_MS
++	bool "tof_sense_ms"
++	default n
++	---help---
++		Enable support for the Nooploop TOFSense / TOFSense-F / TOFSense-S
++		and TOFSense-M / TOFSense-MS laser range finders (NLink UART
++		protocol).
++
++		The driver streams frames from a standard PX4 serial port
++		(selected with SENS_TOFMS_CFG in QGC), validates the NLink
++		checksum, filters invalid zones, reduces the 8x8 / 4x4 zone map
++		of the M/MS series to a single distance and publishes it on the
++		distance_sensor uORB topic for EKF2.
+diff --git a/src/drivers/distance_sensor/tof_sense_ms/README.md b/src/drivers/distance_sensor/tof_sense_ms/README.md
+new file mode 100644
+index 0000000000..0edf226dd3
+--- /dev/null
++++ b/src/drivers/distance_sensor/tof_sense_ms/README.md
+@@ -0,0 +1,168 @@
++# tof_sense_ms — Nooploop TOFSense / TOFSense-M / TOFSense-MS range finder
++
++PX4 serial driver for the Nooploop (空循环) TOFSense family. It decodes the
++**NLink** frames, filters invalid zones and publishes a standard
++`distance_sensor` uORB message so EKF2 can fuse it as a range finder.
++
++The driver is intentionally board independent: the serial port, mounting
++orientation and aggregation mode come from standard PX4 parameters
++(`SENS_TOFMS_CFG`, `SENS_TOFMS_ROT`, ...), from the command line, or both.
++
++| Item | Value |
++|---|---|
++| Module | `tof_sense_ms` |
++| Kconfig | `CONFIG_DRIVERS_DISTANCE_SENSOR_TOF_SENSE_MS` |
++| Device type | `DRV_DIST_DEVTYPE_TOFMS` (`0x9D`) |
++| Output | `distance_sensor` (`type = LASER`, orientation configurable, default 25 = down) |
++| Dependency | `drivers_rangefinder` (`PX4Rangefinder`) |
++| Instances | 2 (`SENS_TOFMS_CFG` / `SENS_TOFMS_CFG2`) |
++| Platforms | NuttX flight controllers and POSIX / SITL |
++
++## Supported sensors
++
++| Model | Frame | Length |
++|---|---|---|
++| TOFSense, TOFSense-F, TOFSense-S | single point, function `0x00` | 16 bytes |
++| TOFSense-M / TOFSense-MS | zone map, function `0x01` | 400 bytes (8x8), 106/112 bytes (4x4) |
++
++The frame type is detected automatically; no model parameter is required.
++
++## Parameters
++
++All parameters are in the QGC **Sensors** group. They are read at boot, a
++reboot is required after changing them.
++
++| Parameter | Default | Description |
++|---|---|---|
++| `SENS_TOFMS_CFG` | `0` (disabled) | Standard serial port selection for instance 0 (`101` TELEM 1, `102` TELEM 2, `103` TELEM 3, `104` SERIAL 4, `201` GPS 1, ...). Generating this parameter also creates the `rc.serial` autostart line. |
++| `SENS_TOFMS_CFG2` | `0` | Optional second instance, e.g. a forward looking sensor. |
++| `SENS_TOFMS_ROT` | `25` | Mounting orientation of instance 0 (`25` down, `0` forward, `24` up, ...). |
++| `SENS_TOFMS_ROT2` | `25` | Mounting orientation of instance 1. |
++| `SENS_TOFMS_AGG` | `0` | Aggregation of instance 0: `0` center zones, `1` median, `2` mean. |
++| `SENS_TOFMS_AGG2` | `0` | Aggregation of instance 1. |
++| `SENS_TOFMS_MIN` | `0.15` m | Minimum distance, also published as `distance_sensor.min_distance`. |
++| `SENS_TOFMS_MAX` | `4.0` m | Maximum distance, also published as `distance_sensor.max_distance`. |
++
++The baudrate of the selected port is taken from the matching
++`SER_<port>_BAUD` parameter (`rc.serial` passes `-b p:${BAUD_PARAM}`), exactly
++like the GPS driver. The sensor default is **921600 8N1**, so set
++`SER_TELx_BAUD = 921600` for the selected port. The corvon_743v2 board
++integration presets this.
++
++## Command line
++
++```
++tof_sense_ms start [-i <0..1>] [-d <dev>] [-b <baud>] [-R <orientation>]
++                   [-a <0|1|2>] [-m <min>] [-M <max>]
++tof_sense_ms status [-i <instance>]
++tof_sense_ms stop   [-i <instance>]
++```
++
++`-b`, `-R`, `-a`, `-m`, `-M` also accept `p:<param_name>` so the same command
++line can be used from `rc.serial` with module parameters.
++
++Examples:
++
++```sh
++# instance 0: TELEM 3, downward facing, center zone mean
++tof_sense_ms start -i 0 -d /dev/ttyS4 -b 921600 -R 25 -a 0
++
++# instance 1: SERIAL 4, forward facing, median of all zones
++tof_sense_ms start -i 1 -d /dev/ttyS7 -b 921600 -R 0 -a 1
++
++# statistics of both instances
++tof_sense_ms status
++```
++
++## Status output
++
++```
++INFO  [tof_sense_ms] instance 0: /dev/ttyS4 @ 921600 Bd, orientation 25, aggregation center, range 0.15..4.00 m
++INFO  [tof_sense_ms]   frames: 547 total, 10 Hz, published 547, no-valid-zone 0, out-of-range 0
++INFO  [tof_sense_ms]   parser: header/length errors 0, checksum errors 0
++INFO  [tof_sense_ms]   link: timeouts 0, last frame 32 ms ago, last distance 2.501 m (type 1, 64 zones)
++tof_sense_ms:0 read: 11741 events, 0us elapsed
++tof_sense_ms:0 com_err: 0 events
++```
++
++The counters are per instance and classify the failure modes separately:
++
++| Counter | Meaning |
++|---|---|
++| `frames` | valid NLink frames decoded (checksum passed) |
++| `Hz` | decoded frame rate over the last second |
++| `published` | frames turned into a `distance_sensor` sample |
++| `no-valid-zone` | frame decoded but the sensor marked every zone invalid |
++| `out-of-range` | zones valid but every distance outside `[min, max]` |
++| `header/length errors` | `0x57` followed by a bad function mark or a bad zone map, buffer overrun |
++| `checksum errors` | frame checksum mismatch (line noise / wrong baudrate) |
++| `timeouts` | more than one second without a valid frame; parser is resynchronised |
++
++## Aggregation
++
++The 8x8 (or 4x4) zone map cannot be fed to EKF2 directly, so the driver
++reduces it to a single distance:
++
++| Mode | Algorithm | Typical use |
++|---|---|---|
++| `0` center | mean of the center 4x4 zones (2x2 for 4x4 frames); if the center is invalid, fall back to the median of all valid zones | altitude hold (default) |
++| `1` median | median of all valid zones | uneven ground, sparse obstacles |
++| `2` mean | mean of all valid zones | flat ground, smoothest output |
++
++Only zones with `status == 0` and `min <= d <= max` are used. A frame with no
++usable zone is **not published** (EKF2 then times out naturally), which is
++safer than publishing a fake distance. `signal_quality` is the mean signal of
++the contributing zones clamped to 0..100.
++
++## EKF2
++
++`distance_sensor` is just a measurement; EKF2 has to be told to use it:
++
++| Parameter | Recommended | Notes |
++|---|---|---|
++| `EKF2_RNG_CTRL` | `1` (conditional) or `2` (always) | required, otherwise the range finder is ignored |
++| `EKF2_HGT_REF` | `0` (baro) or `2` (range) | `2` for indoor altitude hold |
++| `EKF2_RNG_NOISE` | `0.1` m | tune to the observed jitter |
++| `EKF2_RNG_A_HMAX` | e.g. `3.5` | slightly below the reliable range of the sensor |
++
++Keep the barometer enabled: a range finder alone has no absolute reference and
++cannot be the only height source for takeoff.
++
++`distance_sensor.variance` is left at the PX4 default (0), like the other
++native range finder drivers (tfmini, mb12xx, ...). EKF2 uses
++`EKF2_RNG_NOISE` for the range measurement noise, not this field.
++
++## Wiring
++
++- Sensor TX -> flight controller RX, common ground, 5 V supply
++- The sensor only transmits; RX on the flight controller is sufficient
++- Use a port with enough RX buffer at high frame rates (400 bytes/frame,
++  e.g. 10 Hz -> 4 kB/s, 100 Hz -> 40 kB/s)
++
++## Tests
++
++The protocol layer (`tof_sense_ms_parser.{h,cpp}`) has no PX4 dependency and is
++covered by a host side test suite (vendor reference frame, point frames, 8x8 /
++4x4 frames, checksum corruption, truncation, resynchronisation, invalid zone
++maps, buffer overrun):
++
++```sh
++cd test
++make test
++# 77 checks, 0 failures
++```
++
++## Limitations
++
++- Receive only; the query mode (`57 10 FF ..`) and the NAssistant
++  configuration are not implemented.
++- CAN variants of TOFSense are not supported (they use a different protocol).
++- 4x4 mode is supported by the parser but has not been tested against real
++  4x4 hardware.
++- Aggregation is a simple robust statistic; no plane fitting or tilt
++  compensation.
++- The `signal_quality` mapping of the single point series is approximate.
++
++## License
++
++BSD-3-Clause, same as PX4.
+diff --git a/src/drivers/distance_sensor/tof_sense_ms/TOFSenseMS.cpp b/src/drivers/distance_sensor/tof_sense_ms/TOFSenseMS.cpp
+new file mode 100644
+index 0000000000..07dc13bdc3
+--- /dev/null
++++ b/src/drivers/distance_sensor/tof_sense_ms/TOFSenseMS.cpp
+@@ -0,0 +1,476 @@
++/****************************************************************************
++ *
++ *   Copyright (c) 2025 MoonPilot / PX4 Development Team. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ *
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in
++ *    the documentation and/or other materials provided with the
++ *    distribution.
++ * 3. Neither the name PX4 nor the names of its contributors may be
++ *    used to endorse or promote products derived from this software
++ *    without specific prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
++ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
++ * COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++ * OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED
++ * AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
++ * ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
++ * POSSIBILITY OF SUCH DAMAGE.
++ *
++ ****************************************************************************/
++
++/**
++ * @file TOFSenseMS.cpp
++ */
++
++#include "TOFSenseMS.hpp"
++
++#include <cerrno>
++#include <cmath>
++#include <cstdio>
++#include <cstring>
++#include <fcntl.h>
++#include <unistd.h>
++
++#include <lib/drivers/device/Device.hpp>
++#include <mathlib/mathlib.h>
++
++namespace
++{
++
++constexpr float kPointFovRad = 0.040f;      // ~2.3 deg, single point series
++constexpr float kPixelFovRad = 1.100f;      // ~63 deg, TOFSense-M / MS zone map
++constexpr float kPointMinDistance = 0.30f;  // single point series blind zone
++constexpr hrt_abstime kLinkTimeout{1_s};    // no valid frame -> count a timeout
++
++speed_t baud_to_speed(uint32_t baud)
++{
++	switch (baud) {
++	case 9600:    return B9600;
++	case 19200:   return B19200;
++	case 38400:   return B38400;
++	case 57600:   return B57600;
++	case 115200:  return B115200;
++	case 230400:  return B230400;
++	case 460800:  return B460800;
++	case 921600:  return B921600;
++	case 1000000: return B1000000;
++	case 1500000: return B1500000;
++	case 2000000: return B2000000;
++	case 3000000: return B3000000;
++	default:      return 0;
++	}
++}
++
++/** Extract ttySx from the device path for the device id bus field. */
++uint8_t serial_port_bus(const char *port)
++{
++	uint32_t value{0};
++	bool found{false};
++
++	for (const char *p = port; *p != '\0'; p++) {
++		if (*p >= '0' && *p <= '9') {
++			value = value * 10 + static_cast<uint32_t>(*p - '0');
++			found = true;
++
++			if (value > 31) {
++				// The device id bus field is only 5 bits wide.
++				return 0;
++			}
++		}
++	}
++
++	return found ? static_cast<uint8_t>(value) : 0;
++}
++
++const char *aggregation_name(uint8_t aggregation)
++{
++	switch (aggregation) {
++	case TOFSenseMS::AGGREGATION_CENTER: return "center";
++	case TOFSenseMS::AGGREGATION_MEDIAN: return "median";
++	case TOFSenseMS::AGGREGATION_MEAN:   return "mean";
++	default:                             return "unknown";
++	}
++}
++
++} // namespace
++
++TOFSenseMS::TOFSenseMS(uint8_t instance, const char *port, uint32_t baud, uint8_t rotation,
++		       uint8_t aggregation, float min_distance, float max_distance) :
++	ScheduledWorkItem(MODULE_NAME, px4::serial_port_to_wq(port)),
++	_px4_rangefinder(0, rotation),
++	_instance(instance),
++	_baud(baud),
++	_rotation(rotation),
++	_aggregation(aggregation),
++	_min_distance(min_distance),
++	_max_distance(max_distance)
++{
++	strncpy(_port, port, sizeof(_port) - 1);
++	_port[sizeof(_port) - 1] = '\0';
++
++	snprintf(_perf_sample_name, sizeof(_perf_sample_name), MODULE_NAME ":%u read", instance);
++	snprintf(_perf_comms_name, sizeof(_perf_comms_name), MODULE_NAME ":%u com_err", instance);
++	_sample_perf = perf_alloc(PC_ELAPSED, _perf_sample_name);
++	_comms_errors = perf_alloc(PC_COUNT, _perf_comms_name);
++
++	device::Device::DeviceId device_id;
++	device_id.devid_s.devtype = DRV_DIST_DEVTYPE_TOFMS;
++	device_id.devid_s.bus_type = device::Device::DeviceBusType_SERIAL;
++	device_id.devid_s.bus = serial_port_bus(_port);
++	device_id.devid_s.address = 0;
++
++	_px4_rangefinder.set_device_id(device_id.devid);
++	_px4_rangefinder.set_rangefinder_type(distance_sensor_s::MAV_DISTANCE_SENSOR_LASER);
++	_px4_rangefinder.set_min_distance(_min_distance);
++	_px4_rangefinder.set_max_distance(_max_distance);
++	_px4_rangefinder.set_fov(kPixelFovRad);
++}
++
++TOFSenseMS::~TOFSenseMS()
++{
++	stop();
++
++	perf_free(_sample_perf);
++	perf_free(_comms_errors);
++}
++
++int TOFSenseMS::configure_uart()
++{
++	termios uart_config {};
++
++	if (tcgetattr(_fd, &uart_config) < 0) {
++		PX4_ERR("%s: tcgetattr failed (%d)", _port, errno);
++		return PX4_ERROR;
++	}
++
++	const speed_t speed = baud_to_speed(_baud);
++
++	if (speed == 0) {
++		PX4_ERR("%s: unsupported baudrate %" PRIu32, _port, _baud);
++		return PX4_ERROR;
++	}
++
++	// raw 8N1, no flow control
++	uart_config.c_cflag |= (CLOCAL | CREAD);
++	uart_config.c_cflag &= ~CSIZE;
++	uart_config.c_cflag |= CS8;
++	uart_config.c_cflag &= ~PARENB;
++	uart_config.c_cflag &= ~CSTOPB;
++	uart_config.c_cflag &= ~CRTSCTS;
++
++	uart_config.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON | IXOFF | IXANY);
++	uart_config.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
++	uart_config.c_oflag &= ~(OPOST | ONLCR);
++
++	uart_config.c_cc[VMIN] = 0;
++	uart_config.c_cc[VTIME] = 0;
++
++	if (cfsetispeed(&uart_config, speed) < 0 || cfsetospeed(&uart_config, speed) < 0) {
++		PX4_ERR("%s: failed to set baudrate %" PRIu32, _port, _baud);
++		return PX4_ERROR;
++	}
++
++	if (tcsetattr(_fd, TCSANOW, &uart_config) < 0) {
++		PX4_ERR("%s: tcsetattr failed (%d)", _port, errno);
++		return PX4_ERROR;
++	}
++
++	return PX4_OK;
++}
++
++int TOFSenseMS::init()
++{
++	_fd = ::open(_port, O_RDWR | O_NOCTTY | O_NONBLOCK);
++
++	if (_fd < 0) {
++		PX4_ERR("instance %u: open %s failed (%d)", _instance, _port, errno);
++		return PX4_ERROR;
++	}
++
++	if (configure_uart() != PX4_OK) {
++		::close(_fd);
++		_fd = -1;
++		return PX4_ERROR;
++	}
++
++	// Drain anything already buffered before starting a fresh parse.
++	uint8_t discard[64];
++
++	while (::read(_fd, discard, sizeof(discard)) > 0) {}
++
++	_parser.reset();
++
++	const hrt_abstime now = hrt_absolute_time();
++	_last_valid_frame = now;
++	_last_rate_time = now;
++	_last_rate_frames = 0;
++
++	start();
++
++	return PX4_OK;
++}
++
++void TOFSenseMS::start()
++{
++	// Poll a bit faster than the sensor frame rate (default 10 Hz).
++	ScheduleOnInterval(4_ms);
++}
++
++void TOFSenseMS::stop()
++{
++	ScheduleClear();
++
++	if (_fd >= 0) {
++		::close(_fd);
++		_fd = -1;
++	}
++}
++
++void TOFSenseMS::Run()
++{
++	if (_fd < 0) {
++		return;
++	}
++
++	perf_begin(_sample_perf);
++
++	uint8_t buffer[256];
++	int bytes_read{0};
++	int iterations{0};
++
++	while (iterations++ < 16 && (bytes_read = ::read(_fd, buffer, sizeof(buffer))) > 0) {
++		for (int i = 0; i < bytes_read; i++) {
++			if (_parser.push(buffer[i], _frame)) {
++				handle_frame(hrt_absolute_time());
++			}
++		}
++	}
++
++	if (bytes_read < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
++		perf_count(_comms_errors);
++	}
++
++	check_link_timeout(hrt_absolute_time());
++
++	perf_end(_sample_perf);
++}
++
++void TOFSenseMS::check_link_timeout(const hrt_abstime &timestamp)
++{
++	if (_last_valid_frame == 0) {
++		_last_valid_frame = timestamp;
++		return;
++	}
++
++	if ((timestamp - _last_valid_frame) > kLinkTimeout) {
++		if (!_timeout_active) {
++			_timeout_active = true;
++			_timeout_events++;
++
++			PX4_WARN("instance %u: no valid frame on %s for %" PRIu32 " ms (check baudrate and wiring)",
++				 _instance, _port, static_cast<uint32_t>((timestamp - _last_valid_frame) / 1000));
++
++			// A stale partial frame must not be prepended to the next valid frame.
++			_parser.reset();
++		}
++	}
++}
++
++TOFSenseMS::AggregateResult TOFSenseMS::aggregate(const tof_sense_ms::Frame &frame,
++		float &distance, int8_t &quality, int &used_pixels)
++{
++	float distances[tof_sense_ms::kPixelMax];
++	uint32_t signals[tof_sense_ms::kPixelMax];
++	int count{0};
++	int center_count{0};
++	float center_sum{0.f};
++	uint32_t center_signal_sum{0};
++	int valid_status_count{0};
++
++	const int zones = frame.pixel_count;
++
++	// The M/MS series supports 8x8 (64 zones) and 4x4 (16 zones). Use the
++	// center quarter for altitude hold and fall back to the median when the
++	// center is blocked.
++	const int side = static_cast<int>(std::sqrt(static_cast<float>(zones)));
++	const bool square = (side * side == zones);
++	const int center_lo = square ? side / 4 : 0;
++	const int center_hi = square ? (side - 1 - side / 4) : -1;
++
++	const float min_distance = (frame.type == 0) ? math::max(_min_distance, kPointMinDistance) : _min_distance;
++
++	for (int i = 0; i < zones && i < tof_sense_ms::kPixelMax; i++) {
++		const tof_sense_ms::Pixel &pixel = frame.pixels[i];
++
++		if (pixel.status != 0) {
++			continue;
++		}
++
++		valid_status_count++;
++
++		const float d = pixel.distance_mm * 0.001f;
++
++		if (!PX4_ISFINITE(d) || d < min_distance || d > _max_distance) {
++			continue;
++		}
++
++		distances[count] = d;
++		signals[count] = pixel.signal;
++		count++;
++
++		if (square) {
++			const int row = i / side;
++			const int col = i % side;
++
++			if (row >= center_lo && row <= center_hi && col >= center_lo && col <= center_hi) {
++				center_sum += d;
++				center_signal_sum += pixel.signal;
++				center_count++;
++			}
++		}
++	}
++
++	if (valid_status_count == 0) {
++		return AggregateResult::NoValidPixels;
++	}
++
++	if (count == 0) {
++		return AggregateResult::OutOfRange;
++	}
++
++	float result{0.f};
++	uint32_t signal_sum{0};
++	int used{0};
++
++	if ((_aggregation == AGGREGATION_CENTER) && (center_count > 0)) {
++		result = center_sum / center_count;
++		signal_sum = center_signal_sum;
++		used = center_count;
++
++	} else if (_aggregation == AGGREGATION_MEAN) {
++		for (int i = 0; i < count; i++) {
++			result += distances[i];
++			signal_sum += signals[i];
++		}
++
++		result /= count;
++		used = count;
++
++	} else {
++		// Median, also the fallback when the center zones are invalid.
++		for (int i = 1; i < count; i++) {   // insertion sort, count <= 64
++			const float key = distances[i];
++			const uint32_t key_signal = signals[i];
++			int j = i - 1;
++
++			while (j >= 0 && distances[j] > key) {
++				distances[j + 1] = distances[j];
++				signals[j + 1] = signals[j];
++				j--;
++			}
++
++			distances[j + 1] = key;
++			signals[j + 1] = key_signal;
++		}
++
++		result = distances[count / 2];
++		signal_sum = signals[count / 2];
++		used = 1;
++	}
++
++	distance = result;
++	used_pixels = used;
++
++	// Signal strength is 16 bit; the M/MS series reports roughly 0..200.
++	const float mean_signal = static_cast<float>(signal_sum) / math::max(used, 1);
++	quality = static_cast<int8_t>(math::constrain(static_cast<int>(mean_signal), 0, 100));
++
++	return AggregateResult::Ok;
++}
++
++void TOFSenseMS::handle_frame(const hrt_abstime &timestamp)
++{
++	_timeout_active = false;
++	_last_valid_frame = timestamp;
++
++	const uint32_t frame_count = _parser.frames();
++
++	if (timestamp - _last_rate_time >= 1_s) {
++		const float elapsed = (timestamp - _last_rate_time) * 1e-6f;
++		_frame_rate = static_cast<uint32_t>((frame_count - _last_rate_frames) / math::max(elapsed, 1e-3f));
++		_last_rate_time = timestamp;
++		_last_rate_frames = frame_count;
++	}
++
++	// Adapt FoV and minimum distance to the series that is actually connected.
++	if (_frame.type != _last_frame_type) {
++		_last_frame_type = _frame.type;
++
++		if (_frame.type == 0) {
++			_px4_rangefinder.set_min_distance(math::max(_min_distance, kPointMinDistance));
++			_px4_rangefinder.set_fov(kPointFovRad);
++
++		} else {
++			_px4_rangefinder.set_min_distance(_min_distance);
++			_px4_rangefinder.set_fov(kPixelFovRad);
++		}
++	}
++
++	float distance{0.f};
++	int8_t quality{-1};
++	int used_pixels{0};
++
++	switch (aggregate(_frame, distance, quality, used_pixels)) {
++	case AggregateResult::Ok:
++		_last_distance = distance;
++		_frames_published++;
++		_px4_rangefinder.update(timestamp, distance, quality);
++		break;
++
++	case AggregateResult::NoValidPixels:
++		_frames_no_valid_zone++;
++		break;
++
++	case AggregateResult::OutOfRange:
++		_frames_out_of_range++;
++		break;
++	}
++}
++
++void TOFSenseMS::print_info()
++{
++	const hrt_abstime now = hrt_absolute_time();
++	const uint32_t last_frame_age_ms = static_cast<uint32_t>((now - _last_valid_frame) / 1000);
++
++	PX4_INFO("instance %u: %s @ %" PRIu32 " Bd, orientation %u, aggregation %s, range %.2f..%.2f m",
++		 _instance, _port, _baud, static_cast<unsigned>(_rotation), aggregation_name(_aggregation),
++		 static_cast<double>(_min_distance), static_cast<double>(_max_distance));
++
++	PX4_INFO("  frames: %" PRIu32 " total, %" PRIu32 " Hz, published %" PRIu32
++		 ", no-valid-zone %" PRIu32 ", out-of-range %" PRIu32,
++		 _parser.frames(), _frame_rate, _frames_published, _frames_no_valid_zone, _frames_out_of_range);
++
++	PX4_INFO("  parser: header/length errors %" PRIu32 ", checksum errors %" PRIu32,
++		 _parser.header_errors() + _parser.length_errors(), _parser.checksum_errors());
++
++	PX4_INFO("  link: timeouts %" PRIu32 ", last frame %" PRIu32 " ms ago, last distance %.3f m"
++		 " (type %u, %u zones)",
++		 _timeout_events, last_frame_age_ms, static_cast<double>(_last_distance),
++		 static_cast<unsigned>(_frame.type), static_cast<unsigned>(_frame.pixel_count));
++
++	perf_print_counter(_sample_perf);
++	perf_print_counter(_comms_errors);
++}
+diff --git a/src/drivers/distance_sensor/tof_sense_ms/TOFSenseMS.hpp b/src/drivers/distance_sensor/tof_sense_ms/TOFSenseMS.hpp
+new file mode 100644
+index 0000000000..ec71982de8
+--- /dev/null
++++ b/src/drivers/distance_sensor/tof_sense_ms/TOFSenseMS.hpp
+@@ -0,0 +1,148 @@
++/****************************************************************************
++ *
++ *   Copyright (c) 2025 MoonPilot / PX4 Development Team. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ *
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in
++ *    the documentation and/or other materials provided with the
++ *    distribution.
++ * 3. Neither the name PX4 nor the names of its contributors may be
++ *    used to endorse or promote products derived from this software
++ *    without specific prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
++ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
++ * COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++ * OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED
++ * AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
++ * ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
++ * POSSIBILITY OF SUCH DAMAGE.
++ *
++ ****************************************************************************/
++
++/**
++ * @file TOFSenseMS.hpp
++ *
++ * Driver for the Nooploop TOFSense / TOFSense-M / TOFSense-MS laser range
++ * finders connected over a serial port (NLink protocol, 921600 8N1 by
++ * default).
++ *
++ * The class itself is board independent: the serial port, mounting
++ * orientation and aggregation mode are all passed in through the command
++ * line / module parameters.
++ */
++
++#pragma once
++
++#include <termios.h>
++
++#include <drivers/drv_hrt.h>
++#include <drivers/drv_sensor.h>
++#include <lib/perf/perf_counter.h>
++#include <lib/drivers/rangefinder/PX4Rangefinder.hpp>
++#include <px4_platform_common/module.h>
++#include <px4_platform_common/px4_config.h>
++#include <px4_platform_common/px4_work_queue/ScheduledWorkItem.hpp>
++#include <uORB/topics/distance_sensor.h>
++
++#include "tof_sense_ms_parser.h"
++
++#define TOFSENSEMS_DEFAULT_PORT       "/dev/ttyS1"
++#define TOFSENSEMS_DEFAULT_BAUD       921600
++#define TOFSENSEMS_DEFAULT_ROTATION   distance_sensor_s::ROTATION_DOWNWARD_FACING
++#define TOFSENSEMS_MAX_INSTANCES      2
++
++using namespace time_literals;
++
++class TOFSenseMS : public px4::ScheduledWorkItem
++{
++public:
++	enum AggregationMode : uint8_t {
++		AGGREGATION_CENTER = 0,  ///< mean of the center zones, median fallback
++		AGGREGATION_MEDIAN = 1,  ///< median of all valid zones
++		AGGREGATION_MEAN   = 2,  ///< mean of all valid zones
++	};
++
++	TOFSenseMS(uint8_t instance, const char *port, uint32_t baud, uint8_t rotation,
++		   uint8_t aggregation, float min_distance, float max_distance);
++	~TOFSenseMS() override;
++
++	int init();
++
++	void print_info();
++
++	uint8_t instance() const { return _instance; }
++	const char *port() const { return _port; }
++
++private:
++	void Run() override;
++
++	void start();
++	void stop();
++
++	int configure_uart();
++	void handle_frame(const hrt_abstime &timestamp);
++	void check_link_timeout(const hrt_abstime &timestamp);
++
++	enum class AggregateResult : uint8_t {
++		Ok,
++		NoValidPixels,   ///< every zone is marked invalid by the sensor
++		OutOfRange,      ///< zones are valid but outside [min, max]
++	};
++
++	/**
++	 * Reduce the (up to 64) zones of a frame to a single distance.
++	 *
++	 * @param distance    [out] distance in metres
++	 * @param quality     [out] 0..100, -1 if unknown
++	 * @param used_pixels [out] number of zones that contributed
++	 */
++	AggregateResult aggregate(const tof_sense_ms::Frame &frame, float &distance,
++				  int8_t &quality, int &used_pixels);
++
++	PX4Rangefinder _px4_rangefinder;
++
++	tof_sense_ms::Parser _parser;
++	tof_sense_ms::Frame _frame;
++
++	const uint8_t _instance;
++	char _port[20] {};
++	uint32_t _baud;
++	const uint8_t _rotation;
++	uint8_t _aggregation;
++	float _min_distance;
++	float _max_distance;
++	uint8_t _last_frame_type{0xFF};
++	float _last_distance{0.f};
++
++	int _fd{-1};
++
++	hrt_abstime _last_valid_frame{0};
++	hrt_abstime _last_rate_time{0};
++	uint32_t _last_rate_frames{0};
++	uint32_t _frame_rate{0};
++	bool _timeout_active{false};
++
++	uint32_t _frames_published{0};
++	uint32_t _frames_no_valid_zone{0};
++	uint32_t _frames_out_of_range{0};
++	uint32_t _timeout_events{0};
++
++	// perf_alloc() keeps the name pointer, so every instance needs its own
++	// string storage.
++	char _perf_sample_name[32] {};
++	char _perf_comms_name[32] {};
++	perf_counter_t _sample_perf{nullptr};
++	perf_counter_t _comms_errors{nullptr};
++};
+diff --git a/src/drivers/distance_sensor/tof_sense_ms/module.yaml b/src/drivers/distance_sensor/tof_sense_ms/module.yaml
+new file mode 100644
+index 0000000000..11d668c83b
+--- /dev/null
++++ b/src/drivers/distance_sensor/tof_sense_ms/module.yaml
+@@ -0,0 +1,130 @@
++module_name: Nooploop TOFSense Rangefinder
++
++serial_config:
++    - command: tof_sense_ms start -i 0 -d ${SERIAL_DEV} -b p:${BAUD_PARAM} -R p:SENS_TOFMS_ROT -a p:SENS_TOFMS_AGG -m p:SENS_TOFMS_MIN -M p:SENS_TOFMS_MAX
++      port_config_param:
++        name: SENS_TOFMS_CFG
++        group: Sensors
++        description_extended: |
++            Selects the serial port for the first Nooploop TOFSense
++            (TOFSense / TOFSense-M / TOFSense-MS, NLink protocol) instance.
++            The driver is started from rc.serial at boot, so a reboot is
++            required after changing this parameter. The sensor default
++            baudrate is 921600; the matching SER_<port>_BAUD parameter must
++            also be set to 921600 (the corvon_743v2 board defaults do this).
++      label: Nooploop TOFSense (instance 0)
++
++    - command: tof_sense_ms start -i 1 -d ${SERIAL_DEV} -b p:${BAUD_PARAM} -R p:SENS_TOFMS_ROT2 -a p:SENS_TOFMS_AGG2 -m p:SENS_TOFMS_MIN -M p:SENS_TOFMS_MAX
++      port_config_param:
++        name: SENS_TOFMS_CFG2
++        group: Sensors
++        description_extended: |
++            Selects the serial port for the optional second Nooploop TOFSense
++            instance (for example a forward looking sensor for obstacle
++            distance while the first sensor measures altitude). Leave at
++            Disabled if only one sensor is connected.
++      label: Nooploop TOFSense (instance 1)
++
++parameters:
++    - group: Sensors
++      definitions:
++        SENS_TOFMS_ROT:
++            description:
++                short: TOFSense orientation (instance 0)
++                long: |
++                    Mounting orientation of the first TOFSense sensor as
++                    MAV_SENSOR_ORIENTATION enum. 25 = downward facing (altitude
++                    hold), 0 = forward facing (obstacle distance).
++            type: enum
++            values:
++                25: ROTATION_DOWNWARD_FACING
++                24: ROTATION_UPWARD_FACING
++                4: ROTATION_BACKWARD_FACING
++                0: ROTATION_FORWARD_FACING
++                6: ROTATION_LEFT_FACING
++                2: ROTATION_RIGHT_FACING
++            default: 25
++            reboot_required: true
++
++        SENS_TOFMS_ROT2:
++            description:
++                short: TOFSense orientation (instance 1)
++                long: |
++                    Mounting orientation of the second TOFSense sensor as
++                    MAV_SENSOR_ORIENTATION enum. Only used when SENS_TOFMS_CFG2
++                    selects a serial port.
++            type: enum
++            values:
++                25: ROTATION_DOWNWARD_FACING
++                24: ROTATION_UPWARD_FACING
++                4: ROTATION_BACKWARD_FACING
++                0: ROTATION_FORWARD_FACING
++                6: ROTATION_LEFT_FACING
++                2: ROTATION_RIGHT_FACING
++            default: 25
++            reboot_required: true
++
++        SENS_TOFMS_AGG:
++            description:
++                short: TOFSense aggregation mode (instance 0)
++                long: |
++                    How the 8x8 / 4x4 zone map is reduced to a single distance:
++
++                    0: mean of the center zones (8x8: center 4x4), median
++                       fallback when the center is invalid - recommended for
++                       altitude hold
++                    1: median of all valid zones
++                    2: mean of all valid zones
++            type: enum
++            values:
++                0: Center zones
++                1: Median all zones
++                2: Mean all zones
++            default: 0
++            reboot_required: true
++
++        SENS_TOFMS_AGG2:
++            description:
++                short: TOFSense aggregation mode (instance 1)
++                long: |
++                    Aggregation mode of the second TOFSense instance, see
++                    SENS_TOFMS_AGG. Only used when SENS_TOFMS_CFG2 selects a
++                    serial port.
++            type: enum
++            values:
++                0: Center zones
++                1: Median all zones
++                2: Mean all zones
++            default: 0
++            reboot_required: true
++
++        SENS_TOFMS_MIN:
++            description:
++                short: TOFSense minimum distance
++                long: |
++                    Distances below this value are filtered out and reported as
++                    min_distance in the distance_sensor uORB topic. The
++                    TOFSense-M / MS blind zone starts at about 0.15 m.
++            type: float
++            unit: m
++            decimal: 2
++            default: 0.15
++            min: 0.01
++            max: 10.0
++            reboot_required: true
++
++        SENS_TOFMS_MAX:
++            description:
++                short: TOFSense maximum distance
++                long: |
++                    Distances above this value are filtered out and reported as
++                    max_distance in the distance_sensor uORB topic. Use a value
++                    slightly below the maximum reliable range of the sensor
++                    (4.0 m for the TOFSense-M / MS).
++            type: float
++            unit: m
++            decimal: 2
++            default: 4.0
++            min: 0.1
++            max: 50.0
++            reboot_required: true
+diff --git a/src/drivers/distance_sensor/tof_sense_ms/tof_sense_ms_main.cpp b/src/drivers/distance_sensor/tof_sense_ms/tof_sense_ms_main.cpp
+new file mode 100644
+index 0000000000..d68eb87828
+--- /dev/null
++++ b/src/drivers/distance_sensor/tof_sense_ms/tof_sense_ms_main.cpp
+@@ -0,0 +1,352 @@
++/****************************************************************************
++ *
++ *   Copyright (c) 2025 MoonPilot / PX4 Development Team. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ *
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in
++ *    the documentation and/or other materials provided with the
++ *    distribution.
++ * 3. Neither the name PX4 nor the names of its contributors may be
++ *    used to endorse or promote products derived from this software
++ *    without specific prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
++ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
++ * COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++ * OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED
++ * AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
++ * ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
++ * POSSIBILITY OF SUCH DAMAGE.
++ *
++ ****************************************************************************/
++
++/**
++ * @file tof_sense_ms_main.cpp
++ *
++ * NLink (Nooploop TOFSense / -M / -MS) range finder driver command line.
++ *
++ * The preferred way to start the driver is the standard PX4 serial config
++ * parameter SENS_TOFMS_CFG (Sensors group in QGC): rc.serial starts the
++ * driver on the selected logical serial port at boot. The shell interface
++ * below is kept for debugging and multi-instance setups.
++ */
++
++#include "TOFSenseMS.hpp"
++
++#include <px4_platform_common/cli.h>
++#include <px4_platform_common/getopt.h>
++#include <lib/conversion/rotation.h>
++
++namespace tof_sense_ms
++{
++
++TOFSenseMS *g_dev[TOFSENSEMS_MAX_INSTANCES] {};
++
++int start(uint8_t instance, const char *port, uint32_t baud, uint8_t rotation,
++	  uint8_t aggregation, float min_distance, float max_distance);
++int status(int instance);
++int stop(int instance);
++int usage();
++
++int start(uint8_t instance, const char *port, uint32_t baud, uint8_t rotation,
++	  uint8_t aggregation, float min_distance, float max_distance)
++{
++	if (instance >= TOFSENSEMS_MAX_INSTANCES) {
++		PX4_ERR("invalid instance %u (max %u)", static_cast<unsigned>(instance),
++			static_cast<unsigned>(TOFSENSEMS_MAX_INSTANCES - 1));
++		return PX4_ERROR;
++	}
++
++	if (g_dev[instance] != nullptr) {
++		PX4_ERR("instance %u already started on %s", static_cast<unsigned>(instance), g_dev[instance]->port());
++		return PX4_OK;
++	}
++
++	// Two instances on the same device would fight over the same bytes.
++	for (unsigned i = 0; i < TOFSENSEMS_MAX_INSTANCES; i++) {
++		if ((i != instance) && (g_dev[i] != nullptr) && (strcmp(g_dev[i]->port(), port) == 0)) {
++			PX4_ERR("%s is already used by instance %u", port, i);
++			return PX4_ERROR;
++		}
++	}
++
++	g_dev[instance] = new TOFSenseMS(instance, port, baud, rotation, aggregation, min_distance, max_distance);
++
++	if (g_dev[instance] == nullptr) {
++		PX4_ERR("driver start failed");
++		return PX4_ERROR;
++	}
++
++	if (PX4_OK != g_dev[instance]->init()) {
++		PX4_ERR("driver start failed");
++		delete g_dev[instance];
++		g_dev[instance] = nullptr;
++		return PX4_ERROR;
++	}
++
++	return PX4_OK;
++}
++
++int status(int instance)
++{
++	bool found{false};
++	int ret{PX4_OK};
++
++	for (unsigned i = 0; i < TOFSENSEMS_MAX_INSTANCES; i++) {
++		if ((instance >= 0) && (static_cast<int>(i) != instance)) {
++			continue;
++		}
++
++		if (g_dev[i] != nullptr) {
++			g_dev[i]->print_info();
++			found = true;
++		}
++	}
++
++	if (!found) {
++		PX4_ERR("driver not running");
++		ret = 1;
++	}
++
++	return ret;
++}
++
++int stop(int instance)
++{
++	bool found{false};
++
++	for (unsigned i = 0; i < TOFSENSEMS_MAX_INSTANCES; i++) {
++		if ((instance >= 0) && (static_cast<int>(i) != instance)) {
++			continue;
++		}
++
++		if (g_dev[i] != nullptr) {
++			PX4_INFO("stopping instance %u on %s", i, g_dev[i]->port());
++			delete g_dev[i];
++			g_dev[i] = nullptr;
++			found = true;
++		}
++	}
++
++	if (!found) {
++		PX4_ERR("driver not running");
++		return 1;
++	}
++
++	return PX4_OK;
++}
++
++int usage()
++{
++	PRINT_MODULE_DESCRIPTION(
++		R"DESCR_STR(
++### Description
++
++Serial driver for the Nooploop TOFSense / TOFSense-M / TOFSense-MS LiDAR
++range finder (NLink protocol).
++
++The sensor streams NLink frames:
++  - TOFSense / -F / -S : 16 byte single point frame (function mark 0x00)
++  - TOFSense-M / -MS   : 400 byte frame, 8x8 = 64 zones (function mark 0x01)
++
++The driver validates the frame checksum, filters zones whose status is not
++zero and reduces the zone map to a single distance (center zones by default)
++published on the `distance_sensor` uORB topic, so EKF2 can fuse it as a range
++finder.
++
++Normally the driver is started automatically from the standard PX4 serial
++configuration parameter SENS_TOFMS_CFG (QGC: Sensors). A second instance can
++be configured with SENS_TOFMS_CFG2, for example a forward looking sensor for
++obstacle distance while the first sensor measures altitude.
++
++Default UART configuration of the sensor is 921600 8N1; the output rate is
++configured with the Nooploop NAssistant tool.
++
++### Examples
++
++Start instance 0 on TELEM 3, downward facing (the serial_config default):
++$ tof_sense_ms start -i 0 -d /dev/ttyS4 -b 921600 -R 25 -a 0
++
++Start a second, forward facing instance for obstacle distance:
++$ tof_sense_ms start -i 1 -d /dev/ttyS7 -b 921600 -R 0 -a 1
++
++Use the median of all valid zones instead of the center zones:
++$ tof_sense_ms start -d /dev/ttyS4 -a 1
++
++Show statistics of all instances:
++$ tof_sense_ms status
++
++Stop all instances:
++$ tof_sense_ms stop
++)DESCR_STR");
++
++	PRINT_MODULE_USAGE_NAME("tof_sense_ms", "driver");
++	PRINT_MODULE_USAGE_SUBCATEGORY("distance_sensor");
++	PRINT_MODULE_USAGE_COMMAND_DESCR("start", "Start driver");
++	PRINT_MODULE_USAGE_PARAM_INT('i', 0, 0, TOFSENSEMS_MAX_INSTANCES - 1, "Driver instance", true);
++	PRINT_MODULE_USAGE_PARAM_STRING('d', TOFSENSEMS_DEFAULT_PORT, nullptr, "Serial device", true);
++	PRINT_MODULE_USAGE_PARAM_INT('b', TOFSENSEMS_DEFAULT_BAUD, 9600, 3000000,
++				      "Baudrate (can also be p:<param_name>)", true);
++	PRINT_MODULE_USAGE_PARAM_INT('a', 0, 0, 2, "Aggregation: 0=center zones, 1=median, 2=mean", true);
++	PRINT_MODULE_USAGE_PARAM_INT('R', distance_sensor_s::ROTATION_DOWNWARD_FACING, 0, ROTATION_MAX - 1,
++				     "Sensor orientation (25 = downward facing)", true);
++	PRINT_MODULE_USAGE_PARAM_FLOAT('m', 0.15f, 0.0f, 10.0f, "Minimum distance [m]", true);
++	PRINT_MODULE_USAGE_PARAM_FLOAT('M', 4.0f, 0.1f, 50.0f, "Maximum distance [m]", true);
++	PRINT_MODULE_USAGE_COMMAND_DESCR("status", "Driver status");
++	PRINT_MODULE_USAGE_PARAM_INT('i', -1, -1, TOFSENSEMS_MAX_INSTANCES - 1, "Driver instance (-1 = all)", true);
++	PRINT_MODULE_USAGE_COMMAND_DESCR("stop", "Stop driver");
++	PRINT_MODULE_USAGE_PARAM_INT('i', -1, -1, TOFSENSEMS_MAX_INSTANCES - 1, "Driver instance (-1 = all)", true);
++
++	return PX4_OK;
++}
++
++} // namespace tof_sense_ms
++
++extern "C" __EXPORT int tof_sense_ms_main(int argc, char *argv[])
++{
++	if (argc < 2) {
++		return tof_sense_ms::usage();
++	}
++
++	const char *device_path = TOFSENSEMS_DEFAULT_PORT;
++	int baud = TOFSENSEMS_DEFAULT_BAUD;
++	int rotation = distance_sensor_s::ROTATION_DOWNWARD_FACING;
++	int aggregation = TOFSenseMS::AGGREGATION_CENTER;
++	float min_distance = 0.15f;
++	float max_distance = 4.0f;
++	int instance = 0;
++
++	if (!strcmp(argv[1], "start")) {
++
++		int myoptind = 2;
++		const char *myoptarg = nullptr;
++		int ch = 0;
++
++		while ((ch = px4_getopt(argc, argv, "d:b:a:R:m:M:i:", &myoptind, &myoptarg)) != EOF) {
++			switch (ch) {
++			case 'd':
++				device_path = myoptarg;
++				break;
++
++			case 'b':
++				if (px4_get_parameter_value(myoptarg, baud) != 0) {
++					PX4_ERR("baudrate parsing failed");
++					return PX4_ERROR;
++				}
++
++				break;
++
++			case 'a':
++				if (px4_get_parameter_value(myoptarg, aggregation) != 0) {
++					PX4_ERR("aggregation parsing failed");
++					return PX4_ERROR;
++				}
++
++				break;
++
++			case 'R':
++				if (px4_get_parameter_value(myoptarg, rotation) != 0) {
++					PX4_ERR("orientation parsing failed");
++					return PX4_ERROR;
++				}
++
++				break;
++
++			case 'm':
++				if (px4_get_parameter_value(myoptarg, min_distance) != 0) {
++					PX4_ERR("minimum distance parsing failed");
++					return PX4_ERROR;
++				}
++
++				break;
++
++			case 'M':
++				if (px4_get_parameter_value(myoptarg, max_distance) != 0) {
++					PX4_ERR("maximum distance parsing failed");
++					return PX4_ERROR;
++				}
++
++				break;
++
++			case 'i':
++				if (px4_get_parameter_value(myoptarg, instance) != 0) {
++					PX4_ERR("instance parsing failed");
++					return PX4_ERROR;
++				}
++
++				break;
++
++			default:
++				return tof_sense_ms::usage();
++			}
++		}
++
++		if (instance < 0 || instance >= TOFSENSEMS_MAX_INSTANCES) {
++			PX4_ERR("invalid instance %d (0..%d)", instance, TOFSENSEMS_MAX_INSTANCES - 1);
++			return PX4_ERROR;
++		}
++
++		if (aggregation < 0 || aggregation > TOFSenseMS::AGGREGATION_MEAN) {
++			PX4_ERR("invalid aggregation mode %d", aggregation);
++			return PX4_ERROR;
++		}
++
++		if (rotation < 0 || rotation >= ROTATION_MAX) {
++			PX4_ERR("invalid orientation %d", rotation);
++			return PX4_ERROR;
++		}
++
++		if (min_distance < 0.f || max_distance <= min_distance) {
++			PX4_ERR("invalid range %.3f..%.3f m", static_cast<double>(min_distance),
++				static_cast<double>(max_distance));
++			return PX4_ERROR;
++		}
++
++		return tof_sense_ms::start(static_cast<uint8_t>(instance), device_path,
++					   static_cast<uint32_t>(baud), static_cast<uint8_t>(rotation),
++					   static_cast<uint8_t>(aggregation), min_distance, max_distance);
++	}
++
++	if (!strcmp(argv[1], "stop") || !strcmp(argv[1], "status")) {
++		const bool is_status = !strcmp(argv[1], "status");
++		int myoptind = 2;
++		const char *myoptarg = nullptr;
++		int ch = 0;
++		instance = -1;
++
++		while ((ch = px4_getopt(argc, argv, "i:", &myoptind, &myoptarg)) != EOF) {
++			switch (ch) {
++			case 'i':
++				if (px4_get_parameter_value(myoptarg, instance) != 0) {
++					PX4_ERR("instance parsing failed");
++					return PX4_ERROR;
++				}
++
++				break;
++
++			default:
++				return tof_sense_ms::usage();
++			}
++		}
++
++		if (instance < -1 || instance >= TOFSENSEMS_MAX_INSTANCES) {
++			PX4_ERR("invalid instance %d", instance);
++			return PX4_ERROR;
++		}
++
++		return is_status ? tof_sense_ms::status(instance) : tof_sense_ms::stop(instance);
++	}
++
++	return tof_sense_ms::usage();
++}
+diff --git a/src/drivers/distance_sensor/tof_sense_ms/tof_sense_ms_parser.cpp b/src/drivers/distance_sensor/tof_sense_ms/tof_sense_ms_parser.cpp
+new file mode 100644
+index 0000000000..c3c513f0b6
+--- /dev/null
++++ b/src/drivers/distance_sensor/tof_sense_ms/tof_sense_ms_parser.cpp
+@@ -0,0 +1,239 @@
++/****************************************************************************
++ *
++ *   Copyright (c) 2025 MoonPilot / PX4 Development Team. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ *
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in
++ *    the documentation and/or other materials provided with the
++ *    distribution.
++ * 3. Neither the name PX4 nor the names of its contributors may be
++ *    used to endorse or promote products derived from this software
++ *    without specific prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
++ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
++ * COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++ * OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED
++ * AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
++ * ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
++ * POSSIBILITY OF SUCH DAMAGE.
++ *
++ ****************************************************************************/
++
++/**
++ * @file tof_sense_ms_parser.cpp
++ */
++
++#include "tof_sense_ms_parser.h"
++
++namespace tof_sense_ms
++{
++
++namespace
++{
++
++inline uint16_t read_u16(const uint8_t *buffer)
++{
++	return static_cast<uint16_t>(buffer[0]) | (static_cast<uint16_t>(buffer[1]) << 8);
++}
++
++inline uint32_t read_u24(const uint8_t *buffer)
++{
++	return static_cast<uint32_t>(buffer[0])
++	       | (static_cast<uint32_t>(buffer[1]) << 8)
++	       | (static_cast<uint32_t>(buffer[2]) << 16);
++}
++
++inline uint32_t read_u32(const uint8_t *buffer)
++{
++	return static_cast<uint32_t>(buffer[0])
++	       | (static_cast<uint32_t>(buffer[1]) << 8)
++	       | (static_cast<uint32_t>(buffer[2]) << 16)
++	       | (static_cast<uint32_t>(buffer[3]) << 24);
++}
++
++} // namespace
++
++void Parser::reset()
++{
++	_state = State::Sync;
++	_length = 0;
++}
++
++void Parser::restart(uint8_t byte)
++{
++	reset();
++
++	// The offending byte may already be the header of the next frame.
++	if (byte == kFrameHeader) {
++		_buffer[0] = byte;
++		_length = 1;
++		_state = State::Function;
++	}
++}
++
++bool Parser::checksum_ok(uint16_t length) const
++{
++	if (length < 2 || length > kFrameMaxLength) {
++		return false;
++	}
++
++	uint8_t checksum = 0;
++
++	for (uint16_t i = 0; i < length - 1; i++) {
++		checksum = static_cast<uint8_t>(checksum + _buffer[i]);
++	}
++
++	return checksum == _buffer[length - 1];
++}
++
++bool Parser::push(uint8_t byte, Frame &frame)
++{
++	switch (_state) {
++	case State::Sync:
++		if (byte == kFrameHeader) {
++			_buffer[0] = byte;
++			_length = 1;
++			_state = State::Function;
++		}
++
++		return false;
++
++	case State::Function:
++		if (_length >= kFrameMaxLength) {
++			_length_errors++;
++			restart(byte);
++			return false;
++		}
++
++		_buffer[_length++] = byte;
++
++		if (byte == kFrameFunctionPoint) {
++			_type = 0;
++			_length_min = kPointFrameLength;
++			_length_max = kPointFrameLength;
++			_state = State::Payload;
++
++		} else if (byte == kFrameFunctionPixel) {
++			_type = 1;
++			_state = State::Header;
++
++		} else {
++			// 0x57 was followed by something that is not a NLink function mark.
++			_header_errors++;
++			restart(byte);
++		}
++
++		return false;
++
++	case State::Header:
++		if (_length >= kFrameMaxLength) {
++			_length_errors++;
++			restart(byte);
++			return false;
++		}
++
++		_buffer[_length++] = byte;
++
++		if (_length < 9) {
++			return false;
++		}
++
++		{
++			const uint8_t zones = _buffer[8];
++
++			if (zones == 0 || zones > kPixelMax) {
++				_header_errors++;
++				restart(byte);
++				return false;
++			}
++
++			// 9 byte header + zones * 6 byte + checksum (+ optional 6 byte trailer)
++			_length_min = static_cast<uint16_t>(9 + 6 * zones + 1);
++			_length_max = static_cast<uint16_t>(_length_min + kPixelFrameTrailerMax);
++			_state = State::Payload;
++		}
++
++		return false;
++
++	case State::Payload:
++		if (_length >= kFrameMaxLength) {
++			_length_errors++;
++			restart(byte);
++			return false;
++		}
++
++		_buffer[_length++] = byte;
++
++		if (_length < _length_min) {
++			return false;
++		}
++
++		if (checksum_ok(_length)) {
++			return finalize(frame);
++		}
++
++		if (_length >= _length_max) {
++			// No valid frame: drop it and resynchronise on the next header.
++			_checksum_errors++;
++			restart(byte);
++		}
++
++		return false;
++	}
++
++	return false;
++}
++
++bool Parser::finalize(Frame &frame)
++{
++	frame.type = _type;
++	frame.id = _buffer[3];
++	frame.system_time_ms = read_u32(&_buffer[4]);
++
++	if (_type == 0) {
++		frame.pixel_count = 1;
++
++		int32_t distance = static_cast<int32_t>(read_u24(&_buffer[8]));
++
++		// Sign extend the 24 bit value (a negative distance means invalid).
++		if (distance & 0x800000) {
++			distance |= static_cast<int32_t>(0xFF000000);
++		}
++
++		frame.pixels[0].distance_mm = distance;
++		frame.pixels[0].status = _buffer[11];
++		frame.pixels[0].signal = read_u16(&_buffer[12]);
++
++	} else {
++		const uint8_t zones = _buffer[8];
++		frame.pixel_count = zones;
++
++		for (uint8_t i = 0; i < zones; i++) {
++			const uint8_t *pixel = &_buffer[9 + 6 * i];
++
++			// The M/MS series reports micrometres, the driver works in millimetres.
++			frame.pixels[i].distance_mm = static_cast<int32_t>(read_u24(pixel) / 1000);
++			frame.pixels[i].status = pixel[3];
++			frame.pixels[i].signal = read_u16(&pixel[4]);
++		}
++	}
++
++	_frames++;
++	reset();
++
++	return true;
++}
++
++} // namespace tof_sense_ms
+diff --git a/src/drivers/distance_sensor/tof_sense_ms/tof_sense_ms_parser.h b/src/drivers/distance_sensor/tof_sense_ms/tof_sense_ms_parser.h
+new file mode 100644
+index 0000000000..66028446a3
+--- /dev/null
++++ b/src/drivers/distance_sensor/tof_sense_ms/tof_sense_ms_parser.h
+@@ -0,0 +1,166 @@
++/****************************************************************************
++ *
++ *   Copyright (c) 2025 MoonPilot / PX4 Development Team. All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions
++ * are met:
++ *
++ * 1. Redistributions of source code must retain the above copyright
++ *    notice, this list of conditions and the following disclaimer.
++ * 2. Redistributions in binary form must reproduce the above copyright
++ *    notice, this list of conditions and the following disclaimer in
++ *    the documentation and/or other materials provided with the
++ *    distribution.
++ * 3. Neither the name PX4 nor the names of its contributors may be
++ *    used to endorse or promote products derived from this software
++ *    without specific prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
++ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
++ * COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
++ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
++ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
++ * OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED
++ * AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
++ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
++ * ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
++ * POSSIBILITY OF SUCH DAMAGE.
++ *
++ ****************************************************************************/
++
++/**
++ * @file tof_sense_ms_parser.h
++ *
++ * Pure C++ NLink frame parser for the Nooploop TOFSense range finder family.
++ *
++ * This file has no PX4 dependencies on purpose: it is compiled both into the
++ * PX4 driver and into the host-side unit test (test/test_parser.cpp), so the
++ * protocol layer can be regression tested without a flight controller.
++ *
++ * Supported frames (little endian):
++ *
++ *   - TOFSense / TOFSense-F / TOFSense-S : function 0x00, fixed 16 byte frame
++ *   - TOFSense-M / TOFSense-MS           : function 0x01, 9 + 6*n (+6 trailer)
++ *                                          byte frame, n = 64 (8x8) or 16 (4x4)
++ *
++ * Point frame layout:
++ *
++ *   offset  size  field
++ *   0       1     0x57                       frame header
++ *   1       1     0x00                       function mark (point)
++ *   2       1     0xFF                       reserved
++ *   3       1     id
++ *   4       4     system_time [ms]
++ *   8       3     distance, signed 24 bit, unit mm
++ *   11      1     distance status (0 = valid)
++ *   12      2     signal strength
++ *   14      1     range precision (reserved)
++ *   15      1     checksum
++ *
++ * Pixel frame layout:
++ *
++ *   0       1     0x57
++ *   1       1     0x01                       function mark (pixel)
++ *   2       1     0xFF
++ *   3       1     id
++ *   4       4     system_time [ms]
++ *   8       1     zone map (zone count: 64 for 8x8, 16 for 4x4)
++ *   9+6*i   3     zone i distance, unsigned 24 bit, unit um
++ *   12+6*i  1     zone i distance status (0 = valid)
++ *   13+6*i  2     zone i signal strength
++ *   ...           0..6 byte trailer (0xFF on the M series), then checksum
++ *
++ * The checksum is the low byte of the sum of all preceding bytes.
++ */
++
++#pragma once
++
++#include <cstdint>
++
++namespace tof_sense_ms
++{
++
++static constexpr uint8_t kFrameHeader{0x57};
++static constexpr uint8_t kFrameFunctionPoint{0x00};
++static constexpr uint8_t kFrameFunctionPixel{0x01};
++
++static constexpr uint8_t kPixelMax{64};
++static constexpr uint8_t kPointFrameLength{16};
++static constexpr uint16_t kFrameMaxLength{400};
++static constexpr uint8_t kPixelFrameTrailerMax{6};
++
++struct Pixel {
++	int32_t distance_mm{0};   ///< distance in mm; negative values are invalid (point series only)
++	uint8_t status{0xFF};     ///< 0 = measurement valid
++	uint16_t signal{0};       ///< signal strength
++};
++
++struct Frame {
++	uint8_t type{0};          ///< 0 = point series, 1 = pixel series
++	uint8_t id{0};
++	uint32_t system_time_ms{0};
++	uint8_t pixel_count{0};
++	Pixel pixels[kPixelMax] {};
++};
++
++/**
++ * Streaming NLink parser.
++ *
++ * Feed one received byte at a time with push(). The parser resynchronises on
++ * the next 0x57 header after any corruption and validates the checksum of
++ * every frame before reporting it.
++ */
++class Parser
++{
++public:
++	/**
++	 * Feed one byte from the serial stream.
++	 *
++	 * @param byte  received byte
++	 * @param frame [out] valid only when true is returned
++	 * @return true if a complete, checksum verified frame was decoded
++	 */
++	bool push(uint8_t byte, Frame &frame);
++
++	/**
++	 * Drop any partially received frame. Counters are kept.
++	 *
++	 * Called on driver start and when the link times out so that a stale
++	 * half frame cannot be prepended to the next valid frame.
++	 */
++	void reset();
++
++	uint32_t frames() const { return _frames; }
++	uint32_t header_errors() const { return _header_errors; }
++	uint32_t length_errors() const { return _length_errors; }
++	uint32_t checksum_errors() const { return _checksum_errors; }
++	uint32_t errors() const { return _header_errors + _length_errors + _checksum_errors; }
++
++private:
++	enum class State : uint8_t {
++		Sync,
++		Function,
++		Header,
++		Payload,
++	};
++
++	bool checksum_ok(uint16_t length) const;
++	bool finalize(Frame &frame);
++	void restart(uint8_t byte);
++
++	State _state{State::Sync};
++	uint8_t _buffer[kFrameMaxLength] {};
++	uint16_t _length{0};
++	uint16_t _length_min{0};
++	uint16_t _length_max{0};
++	uint8_t _type{0};
++	uint32_t _frames{0};
++	uint32_t _header_errors{0};
++	uint32_t _length_errors{0};
++	uint32_t _checksum_errors{0};
++};
++
++} // namespace tof_sense_ms
+diff --git a/src/drivers/drv_sensor.h b/src/drivers/drv_sensor.h
+index 4b7ee69d87..4e9097f199 100644
+--- a/src/drivers/drv_sensor.h
++++ b/src/drivers/drv_sensor.h
+@@ -210,6 +210,7 @@
+ #define DRV_DIST_DEVTYPE_SIM           0x9A
+ #define DRV_DIST_DEVTYPE_SRF05         0x9B
+ #define DRV_DIST_DEVTYPE_GY_US42       0x9C
++#define DRV_DIST_DEVTYPE_TOFMS         0x9D
+ 
+ #define DRV_BAT_DEVTYPE_BATMON_SMBUS   0x9d
+ #define DRV_GPIO_DEVTYPE_MCP23017      0x9E
