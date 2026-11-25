@@ -155,7 +155,7 @@ listener estimator_aid_source1d
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| `SENS_TOFMS_CFG` 不存在 | 固件未打开驱动 / 参数未重新生成 | 检查 `CONFIG_DRIVERS_DISTANCE_SENSOR_TOF_SENSE_MS=y`，重新编译烧录 |
+| `SENS_TOFMS_CFG` 不存在 | 固件未打开驱动 / 参数未重新生成；或者当前连的是 SITL | 检查 `CONFIG_DRIVERS_DISTANCE_SENSOR_TOF_SENSE_MS=y`，重新编译烧录。SITL 没有 `CONFIG_BOARD_SERIAL_*`，本来就不会生成 `SENS_TOFMS_CFG`，只能用 `tof_sense_ms start -d /dev/pts/N` |
 | `frames` 不涨，`parser errors` 猛涨 | 波特率不对、TX/RX 接反、未共地 | 确认 `SER_xxx_BAUD=921600`；传感器 TX → 飞控 RX；共地 |
 | `timeouts` 持续增长 | 模块没在主动上报 / 线断 | 用 NAssistant 确认模块为主动上报；检查线序 |
 | `checksum errors` 少量增长 | 偶发干扰 | 一般无需处理；比例高则降波特率或换屏蔽线 |

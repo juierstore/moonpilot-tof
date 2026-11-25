@@ -11,6 +11,14 @@
 - 喂帧脚本：`test/sitl/tof_feeder.py`，10 Hz，400 字节 8×8 帧
 - 编译：`make px4_sitl_tof -j4`，无报错
 
+> **SITL 里没有 `SENS_TOFMS_CFG`，这是正常的。**
+> `SENS_TOFMS_CFG` 由 PX4 的 `serial_config` 生成器产生，只对在
+> `default.px4board` 里声明了 `CONFIG_BOARD_SERIAL_*` 的真实飞控板生效。
+> SITL 板没有任何标准串口标签（`serial_params.c` 为空、`rc.serial` 为空），
+> 所以 SITL 只生成 `SENS_TOFMS_ROT / AGG / MIN / MAX` 这些模块参数，端口要在
+> 命令行用 `-d /dev/pts/N` 直接指定。真实 corvon 固件里 `SENS_TOFMS_CFG`
+> 是存在的（见 [QGC_SETUP.md](QGC_SETUP.md)）。
+
 ---
 
 ## 1. 正常双实例
